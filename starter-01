@@ -1,0 +1,2104 @@
+Let's do a project to build RESTful APIs for a school management system. It will serve as the backend server for a React.js Frontend interface. The system will not need internet as users will connect via a server IP address with shared users.
+
+The key components and requirements:
+Core Requirements
+1. RESTful API endpoints for school management data
+2. Local server that doesn't require internet access
+3. Support for multiple users connecting via server IP
+4. Integration with React.js frontend
+API Structure
+Here's my proposed structure for the school management API:
+1. Authentication System
+* Login/logout endpoints
+* User session management
+* Role-based access control (admin, teacher, student, etc.)
+2. Student Management
+* CRUD operations for student records
+* Student attendance tracking
+* Academic performance records
+3. Teacher Management
+* CRUD operations for teacher records
+* Teaching assignments
+* Schedule management
+4. Class Management
+* CRUD operations for classes
+* Curriculum planning
+* Class scheduling
+5. Grades and Assessment
+* Grade recording
+* Assignment tracking
+* Report generation
+6. Quiz(MCQ) and Assignement Management
+
+We will use Node.js, Express.js, MySQL, React.js
+
+
+I'll continue with the authentication implementation and then move on to the other components of our school management system:
+
+```javascript
+// models/userModel.js (continued)
+// Update user password
+async function updatePassword(userId, hashedPassword) {
+  try {
+    const query = 'UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
+    return await db.query(query, [hashedPassword, userId]);
+  } catch (error) {
+    logger.error('Error updating password:', error.message);
+    throw error;
+  }
+}
+
+// Delete user
+async function remove(userId) {
+  try {
+    const query = 'DELETE FROM users WHERE id = ?';
+    return await db.query(query, [userId]);
+  } catch (error) {
+    logger.error('Error deleting user:', error.message);
+    throw error;
+  }
+}
+
+module.exports = {
+  findByUsername,
+  findById,
+  create,
+  updateLastLogin,
+  getAll,
+  update,
+  updatePassword,
+  remove
+};
+
+// controllers/authController.js
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { jwtSecret, jwtExpiration } = require('../config/config');
+const User = require('../models/userModel');
+const logger = require('../utils/logger');
+
+// Register a new user
+async function register(req, res) {
+  try {
+    // Check if username already exists
+    const existingUser = await User.findByUsername(req.body.username);
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: 'Username already exists'
+      });
+    }
+    
+    // Hash the password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(req.body.password, salt);
+    
+    // Create user object
+    const userData = {
+      ...req.body,
+      password: hashedPassword
+    };
+    
+    // Save user to database
+    const userId = await User.create(userData);
+    
+    // Get the newly created user
+    const user = await User.findById(userId);
+    
+    // Create JWT token
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role },
+      jwtSecret,
+      { expiresIn: jwtExpiration }
+    );
+    
+    res.status(201).json({
+      success: true,
+      message: 'User registered successfully',
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    logger.error('Registration error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred during registration',
+      error: error.message
+    });
+  }
+}
+
+// Login user
+async function login(req, res) {
+  try {
+    const { username, password } = req.body;
+    
+    // Validate input
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username and password are required'
+      });
+    }
+    
+    // Find user
+    const user = await User.findByUsername(username);
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password'
+      });
+    }
+    
+    // Check if user is active
+    if (!user.is_active) {
+      return res.status(403).json({
+        success: false,
+        message: 'Account is inactive. Please contact administrator.'
+      });
+    }
+    
+    // Validate password
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password'
+      });
+    }
+    
+    // Update last login
+    await User.updateLastLogin(user.id);
+    
+    // Create JWT token
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role },
+      jwtSecret,
+      { expiresIn: jwtExpiration }
+    );
+    
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    logger.error('Login error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred during login',
+      error: error.message
+    });
+  }
+}
+
+// Get user profile
+async function getProfile(req, res) {
+  try {
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        role: user.role,
+        last_login: user.last_login,
+        created_at: user.created_at
+      }
+    });
+  } catch (error) {
+    logger.error('Get profile error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while fetching user profile',
+      error: error.message
+    });
+  }
+}
+
+// Change password
+async function changePassword(req, res) {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password and new password are required'
+      });
+    }
+    
+    // Get user
+    const user = await User.findById(req.user.id);
+    
+    // Check current password
+    const isValidPassword = await bcrypt.compare(currentPassword, user.password);
+    if (!isValidPassword) {
+      return res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+    
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+    
+    // Update password
+    await User.updatePassword(user.id, hashedPassword);
+    
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+  } catch (error) {
+    logger.error('Change password error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while changing password',
+      error: error.message
+    });
+  }
+}
+
+// Logout user (for server-side actions if needed)
+async function logout(req, res) {
+  // JWT is stateless, so we don't need to do anything server-side
+  // The client should remove the token from storage
+  
+  res.json({
+    success: true,
+    message: 'Logged out successfully'
+  });
+}
+
+module.exports = {
+  register,
+  login,
+  getProfile,
+  changePassword,
+  logout
+};
+
+// routes/authRoutes.js
+const express = require('express');
+const router = express.Router();
+const authController = require('../controllers/authController');
+const authenticateToken = require('../middleware/auth');
+const { validateRequest, userValidationRules } = require('../utils/validators');
+
+// Register a new user
+router.post('/register', userValidationRules, validateRequest, authController.register);
+
+// Login user
+router.post('/login', authController.login);
+
+// Get user profile (protected route)
+router.get('/profile', authenticateToken, authController.getProfile);
+
+// Change password (protected route)
+router.post('/change-password', authenticateToken, authController.changePassword);
+
+// Logout user
+router.post('/logout', authenticateToken, authController.logout);
+
+module.exports = router;
+
+```
+
+Now, let's implement the student management module:
+
+```javascript
+// models/studentModel.js
+const db = require('../config/db');
+const logger = require('../utils/logger');
+
+// Create a new student
+async function create(userId, studentData) {
+  try {
+    const {
+      registration_number,
+      date_of_birth,
+      gender,
+      address,
+      phone_number,
+      parent_guardian_name,
+      parent_guardian_phone,
+      admission_date
+    } = studentData;
+    
+    const query = `
+      INSERT INTO students (
+        user_id, registration_number, date_of_birth, gender, address, 
+        phone_number, parent_guardian_name, parent_guardian_phone, admission_date
+      ) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    
+    const result = await db.query(query, [
+      userId, registration_number, date_of_birth, gender, address, 
+      phone_number, parent_guardian_name, parent_guardian_phone, admission_date
+    ]);
+    
+    return result.insertId;
+  } catch (error) {
+    logger.error('Error creating student:', error.message);
+    throw error;
+  }
+}
+
+// Get all students with pagination
+async function getAll(page = 1, limit = 10, search = '') {
+  try {
+    const offset = (page - 1) * limit;
+    let params = [limit, offset];
+    let searchClause = '';
+    
+    if (search) {
+      searchClause = `
+        WHERE u.first_name LIKE ? OR u.last_name LIKE ? 
+        OR s.registration_number LIKE ? OR s.parent_guardian_name LIKE ?
+      `;
+      const searchParam = `%${search}%`;
+      params = [searchParam, searchParam, searchParam, searchParam, ...params];
+    }
+    
+    const query = `
+      SELECT 
+        s.id, s.registration_number, s.date_of_birth, s.gender, s.admission_date,
+        u.id as user_id, u.first_name, u.last_name, u.email,
+        s.address, s.phone_number, s.parent_guardian_name, s.parent_guardian_phone,
+        s.created_at, s.updated_at
+      FROM students s
+      JOIN users u ON s.user_id = u.id
+      ${searchClause}
+      ORDER BY s.id
+      LIMIT ? OFFSET ?
+    `;
+    
+    const countQuery = `
+      SELECT COUNT(*) as total 
+      FROM students s
+      JOIN users u ON s.user_id = u.id
+      ${searchClause}
+    `;
+    
+    const [students, countResult] = await Promise.all([
+      db.query(query, params),
+      db.query(countQuery, search ? [search, search, search, search] : [])
+    ]);
+    
+    return {
+      students,
+      pagination: {
+        page,
+        limit,
+        total: countResult[0].total,
+        pages: Math.ceil(countResult[0].total / limit)
+      }
+    };
+  } catch (error) {
+    logger.error('Error getting all students:', error.message);
+    throw error;
+  }
+}
+
+// Get student by ID
+async function getById(id) {
+  try {
+    const query = `
+      SELECT 
+        s.id, s.registration_number, s.date_of_birth, s.gender, s.admission_date,
+        u.id as user_id, u.first_name, u.last_name, u.email,
+        s.address, s.phone_number, s.parent_guardian_name, s.parent_guardian_phone,
+        s.created_at, s.updated_at
+      FROM students s
+      JOIN users u ON s.user_id = u.id
+      WHERE s.id = ?
+    `;
+    
+    const students = await db.query(query, [id]);
+    return students.length ? students[0] : null;
+  } catch (error) {
+    logger.error(`Error getting student by ID ${id}:`, error.message);
+    throw error;
+  }
+}
+
+// Get student by user ID
+async function getByUserId(userId) {
+  try {
+    const query = `
+      SELECT 
+        s.id, s.registration_number, s.date_of_birth, s.gender, s.admission_date,
+        u.id as user_id, u.first_name, u.last_name, u.email,
+        s.address, s.phone_number, s.parent_guardian_name, s.parent_guardian_phone,
+        s.created_at, s.updated_at
+      FROM students s
+      JOIN users u ON s.user_id = u.id
+      WHERE s.user_id = ?
+    `;
+    
+    const students = await db.query(query, [userId]);
+    return students.length ? students[0] : null;
+  } catch (error) {
+    logger.error(`Error getting student by user ID ${userId}:`, error.message);
+    throw error;
+  }
+}
+
+// Update student
+async function update(id, studentData) {
+  try {
+    const {
+      date_of_birth,
+      gender,
+      address,
+      phone_number,
+      parent_guardian_name,
+      parent_guardian_phone
+    } = studentData;
+    
+    const query = `
+      UPDATE students
+      SET date_of_birth = ?, gender = ?, address = ?, 
+          phone_number = ?, parent_guardian_name = ?, parent_guardian_phone = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `;
+    
+    return await db.query(query, [
+      date_of_birth, gender, address, 
+      phone_number, parent_guardian_name, parent_guardian_phone,
+      id
+    ]);
+  } catch (error) {
+    logger.error(`Error updating student ${id}:`, error.message);
+    throw error;
+  }
+}
+
+// Delete student
+async function remove(id) {
+  try {
+    const query = 'DELETE FROM students WHERE id = ?';
+    return await db.query(query, [id]);
+  } catch (error) {
+    logger.error(`Error deleting student ${id}:`, error.message);
+    throw error;
+  }
+}
+
+// Get student's classes
+async function getClasses(studentId) {
+  try {
+    const query = `
+      SELECT 
+        c.id, c.name, c.description, c.academic_year,
+        g.id as grade_id, g.name as grade_name,
+        cs.enrollment_date, cs.status
+      FROM class_students cs
+      JOIN classes c ON cs.class_id = c.id
+      JOIN grades g ON c.grade_id = g.id
+      WHERE cs.student_id = ?
+      ORDER BY c.academic_year DESC, g.name ASC
+    `;
+    
+    return await db.query(query, [studentId]);
+  } catch (error) {
+    logger.error(`Error getting classes for student ${studentId}:`, error.message);
+    throw error;
+  }
+}
+
+module.exports = {
+  create,
+  getAll,
+  getById,
+  getByUserId,
+  update,
+  remove,
+  getClasses
+};
+
+// controllers/studentController.js
+const Student = require('../models/studentModel');
+const User = require('../models/userModel');
+const bcrypt = require('bcryptjs');
+const logger = require('../utils/logger');
+
+// Create a new student (with user account)
+async function createStudent(req, res) {
+  try {
+    // Start a transaction
+    const connection = await db.pool.getConnection();
+    await connection.beginTransaction();
+    
+    try {
+      // Create user account first
+      const { 
+        username, password, email, first_name, last_name,
+        registration_number, date_of_birth, gender, address, 
+        phone_number, parent_guardian_name, parent_guardian_phone, admission_date
+      } = req.body;
+      
+      // Hash password
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
+      
+      // Get student role ID
+      const roles = await connection.query('SELECT id FROM roles WHERE name = ?', ['student']);
+      const roleId = roles[0][0].id;
+      
+      // Create user
+      const [userResult] = await connection.query(
+        'INSERT INTO users (username, password, email, first_name, last_name, role_id) VALUES (?, ?, ?, ?, ?, ?)',
+        [username, hashedPassword, email, first_name, last_name, roleId]
+      );
+      
+      const userId = userResult.insertId;
+      
+      // Create student profile
+      const [studentResult] = await connection.query(
+        `INSERT INTO students (
+          user_id, registration_number, date_of_birth, gender, address, 
+          phone_number, parent_guardian_name, parent_guardian_phone, admission_date
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          userId, registration_number, date_of_birth, gender, address, 
+          phone_number, parent_guardian_name, parent_guardian_phone, admission_date
+        ]
+      );
+      
+      await connection.commit();
+      
+      res.status(201).json({
+        success: true,
+        message: 'Student created successfully',
+        data: {
+          id: studentResult.insertId,
+          user_id: userId,
+          registration_number,
+          first_name,
+          last_name
+        }
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    logger.error('Error creating student:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while creating student',
+      error: error.message
+    });
+  }
+}
+
+// Get all students
+async function getAllStudents(req, res) {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.search || '';
+    
+    const result = await Student.getAll(page, limit, search);
+    
+    res.json({
+      success: true,
+      data: result.students,
+      pagination: result.pagination
+    });
+  } catch (error) {
+    logger.error('Error getting all students:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while fetching students',
+      error: error.message
+    });
+  }
+}
+
+// Get student by ID
+async function getStudentById(req, res) {
+  try {
+    const studentId = req.params.id;
+    const student = await Student.getById(studentId);
+    
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: student
+    });
+  } catch (error) {
+    logger.error(`Error getting student ${req.params.id}:`, error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while fetching student',
+      error: error.message
+    });
+  }
+}
+
+// Update student
+async function updateStudent(req, res) {
+  try {
+    const studentId = req.params.id;
+    
+    // Check if student exists
+    const student = await Student.getById(studentId);
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found'
+      });
+    }
+    
+    // Update student data
+    await Student.update(studentId, req.body);
+    
+    // Update user data if provided
+    if (req.body.first_name || req.body.last_name || req.body.email) {
+      const userData = {
+        first_name: req.body.first_name,
+        last_name: req.body.last_name,
+        email: req.body.email,
+        is_active: true,
+        role_id: 3 // Student role
+      };
+      
+      await User.update(student.user_id, userData);
+    }
+    
+    res.json({
+      success: true,
+      message: 'Student updated successfully'
+    });
+  } catch (error) {
+    logger.error(`Error updating student ${req.params.id}:`, error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while updating student',
+      error: error.message
+    });
+  }
+}
+
+// Delete student
+async function deleteStudent(req, res) {
+  try {
+    const studentId = req.params.id;
+    
+    // Check if student exists
+    const student = await Student.getById(studentId);
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found'
+      });
+    }
+    
+    // Start transaction
+    const connection = await db.pool.getConnection();
+    await connection.beginTransaction();
+    
+    try {
+      // Delete student record
+      await connection.query('DELETE FROM students WHERE id = ?', [studentId]);
+      
+      // Delete user account
+      await connection.query('DELETE FROM users WHERE id = ?', [student.user_id]);
+      
+      await connection.commit();
+      
+      res.json({
+        success: true,
+        message: 'Student deleted successfully'
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    logger.error(`Error deleting student ${req.params.id}:`, error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while deleting student',
+      error: error.message
+    });
+  }
+}
+
+// Get student's classes
+async function getStudentClasses(req, res) {
+  try {
+    const studentId = req.params.id;
+    
+    // Check if student exists
+    const student = await Student.getById(studentId);
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found'
+      });
+    }
+    
+    const classes = await Student.getClasses(studentId);
+    
+    res.json({
+      success: true,
+      data: classes
+    });
+  } catch (error) {
+    logger.error(`Error getting classes for student ${req.params.id}:`, error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while fetching student classes',
+      error: error.message
+    });
+  }
+}
+
+module.exports = {
+  createStudent,
+  getAllStudents,
+  getStudentById,
+  updateStudent,
+  deleteStudent,
+  getStudentClasses
+};
+
+// routes/studentRoutes.js
+const express = require('express');
+const router = express.Router();
+const studentController = require('../controllers/studentController');
+const authenticateToken = require('../middleware/auth');
+const checkRole = require('../middleware/roleCheck');
+const { validateRequest, studentValidationRules, userValidationRules } = require('../utils/validators');
+
+// Create a new student (requires both user and student validation)
+router.post(
+  '/',
+  authenticateToken,
+  checkRole('admin'),
+  [...userValidationRules, ...studentValidationRules],
+  validateRequest,
+  studentController.createStudent
+);
+
+// Get all students
+router.get(
+  '/',
+  authenticateToken,
+  checkRole('admin', 'teacher'),
+  studentController.getAllStudents
+);
+
+// Get student by ID
+router.get(
+  '/:id',
+  authenticateToken,
+  checkRole('admin', 'teacher', 'student'),
+  studentController.getStudentById
+);
+
+// Update student
+router.put(
+  '/:id',
+  authenticateToken,
+  checkRole('admin'),
+  studentValidationRules,
+  validateRequest,
+  studentController.updateStudent
+);
+
+// Delete student
+router.delete(
+  '/:id',
+  authenticateToken,
+  checkRole('admin'),
+  studentController.deleteStudent
+);
+
+// Get student's classes
+router.get(
+  '/:id/classes',
+  authenticateToken,
+  checkRole('admin', 'teacher', 'student'),
+  studentController.getStudentClasses
+);
+
+module.exports = router;
+
+```
+
+Now, let's implement the teacher management module:
+
+```javascript
+// models/teacherModel.js
+const db = require('../config/db');
+const logger = require('../utils/logger');
+
+// Create a new teacher
+async function create(userId, teacherData) {
+  try {
+    const {
+      employee_id,
+      date_of_birth,
+      gender,
+      address,
+      phone_number,
+      hire_date,
+      qualifications,
+      subjects_taught
+    } = teacherData;
+    
+    const query = `
+      INSERT INTO teachers (
+        user_id, employee_id, date_of_birth, gender, address, 
+        phone_number, hire_date, qualifications, subjects_taught
+      ) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    
+    const result = await db.query(query, [
+      userId, employee_id, date_of_birth, gender, address, 
+      phone_number, hire_date, qualifications, subjects_taught
+    ]);
+    
+    return result.insertId;
+  } catch (error) {
+    logger.error('Error creating teacher:', error.message);
+    throw error;
+  }
+}
+
+// Get all teachers with pagination
+async function getAll(page = 1, limit = 10, search = '') {
+  try {
+    const offset = (page - 1) * limit;
+    let params = [limit, offset];
+    let searchClause = '';
+    
+    if (search) {
+      searchClause = `
+        WHERE u.first_name LIKE ? OR u.last_name LIKE ? 
+        OR t.employee_id LIKE ? OR t.subjects_taught LIKE ?
+      `;
+      const searchParam = `%${search}%`;
+      params = [searchParam, searchParam, searchParam, searchParam, ...params];
+    }
+    
+    const query = `
+      SELECT 
+        t.id, t.employee_id, t.date_of_birth, t.gender, t.hire_date,
+        u.id as user_id, u.first_name, u.last_name, u.email,
+        t.address, t.phone_number, t.qualifications, t.subjects_taught,
+        t.created_at, t.updated_at
+      FROM teachers t
+      JOIN users u ON t.user_id = u.id
+      ${searchClause}
+      ORDER BY t.id
+      LIMIT ? OFFSET ?
+    `;
+    
+    const countQuery = `
+      SELECT COUNT(*) as total 
+      FROM teachers t
+      JOIN users u ON t.user_id = u.id
+      ${searchClause}
+    `;
+    
+    const [teachers, countResult] = await Promise.all([
+      db.query(query, params),
+      db.query(countQuery, search ? [search, search, search, search] : [])
+    ]);
+    
+    return {
+      teachers,
+      pagination: {
+        page,
+        limit,
+        total: countResult[0].total,
+        pages: Math.ceil(countResult[0].total / limit)
+      }
+    };
+  } catch (error) {
+    logger.error('Error getting all teachers:', error.message);
+    throw error;
+  }
+}
+
+// Get teacher by ID
+async function getById(id) {
+  try {
+    const query = `
+      SELECT 
+        t.id, t.employee_id, t.date_of_birth, t.gender, t.hire_date,
+        u.id as user_id, u.first_name, u.last_name, u.email,
+        t.address, t.phone_number, t.qualifications, t.subjects_taught,
+        t.created_at, t.updated_at
+      FROM teachers t
+      JOIN users u ON t.user_id = u.id
+      WHERE t.id = ?
+    `;
+    
+    const teachers = await db.query(query, [id]);
+    return teachers.length ? teachers[0] : null;
+  } catch (error) {
+    logger.error(`Error getting teacher by ID ${id}:`, error.message);
+    throw error;
+  }
+}
+
+// Get teacher by user ID
+async function getByUserId(userId) {
+  try {
+    const query = `
+      SELECT 
+        t.id, t.employee_id, t.date_of_birth, t.gender, t.hire_date,
+        u.id as user_id, u.first_name, u.last_name, u.email,
+        t.address, t.phone_number, t.qualifications, t.subjects_taught,
+        t.created_at, t.updated_at
+      FROM teachers t
+      JOIN users u ON t.user_id = u.id
+      WHERE t.user_id = ?
+    `;
+    
+    const teachers = await db.query(query, [userId]);
+    return teachers.length ? teachers[0] : null;
+  } catch (error) {
+    logger.error(`Error getting teacher by user ID ${userId}:`, error.message);
+    throw error;
+  }
+}
+
+// Update teacher
+async function update(id, teacherData) {
+  try {
+    const {
+      date_of_birth,
+      gender,
+      address,
+      phone_number,
+      qualifications,
+      subjects_taught
+    } = teacherData;
+    
+    const query = `
+      UPDATE teachers
+      SET date_of_birth = ?, gender = ?, address = ?, 
+          phone_number = ?, qualifications = ?, subjects_taught = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `;
+    
+    return await db.query(query, [
+      date_of_birth, gender, address, 
+      phone_number, qualifications, subjects_taught,
+      id
+    ]);
+  } catch (error) {
+    logger.error(`Error updating teacher ${id}:`, error.message);
+    throw error;
+  }
+}
+
+// Delete teacher
+async function remove(id) {
+  try {
+    const query = 'DELETE FROM teachers WHERE id = ?';
+    return await db.query(query, [id]);
+  } catch (error) {
+    logger.error(`Error deleting teacher ${id}:`, error.message);
+    throw error;
+  }
+}
+
+// Get teacher's assigned classes
+async function getClasses(teacherId) {
+  try {
+    const query = `
+      SELECT 
+        c.id, c.name, c.description, c.academic_year,
+        g.id as grade_id, g.name as grade_name,
+        s.id as subject_id, s.name as subject_name, s.code as subject_code
+      FROM class_subjects cs
+      JOIN classes c ON cs.class_id = c.id
+      JOIN subjects s ON cs.subject_id = s.id
+      JOIN grades g ON c.grade_id = g.id
+      WHERE cs.teacher_i
+```
+
+I'll continue with the authentication implementation and then move on to the other components of our school management system:
+
+```javascript
+// models/userModel.js (continued)
+// Update user password
+async function updatePassword(userId, hashedPassword) {
+  try {
+    const query = 'UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?';
+    return await db.query(query, [hashedPassword, userId]);
+  } catch (error) {
+    logger.error('Error updating password:', error.message);
+    throw error;
+  }
+}
+
+// Delete user
+async function remove(userId) {
+  try {
+    const query = 'DELETE FROM users WHERE id = ?';
+    return await db.query(query, [userId]);
+  } catch (error) {
+    logger.error('Error deleting user:', error.message);
+    throw error;
+  }
+}
+
+module.exports = {
+  findByUsername,
+  findById,
+  create,
+  updateLastLogin,
+  getAll,
+  update,
+  updatePassword,
+  remove
+};
+
+// controllers/authController.js
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { jwtSecret, jwtExpiration } = require('../config/config');
+const User = require('../models/userModel');
+const logger = require('../utils/logger');
+
+// Register a new user
+async function register(req, res) {
+  try {
+    // Check if username already exists
+    const existingUser = await User.findByUsername(req.body.username);
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: 'Username already exists'
+      });
+    }
+    
+    // Hash the password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(req.body.password, salt);
+    
+    // Create user object
+    const userData = {
+      ...req.body,
+      password: hashedPassword
+    };
+    
+    // Save user to database
+    const userId = await User.create(userData);
+    
+    // Get the newly created user
+    const user = await User.findById(userId);
+    
+    // Create JWT token
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role },
+      jwtSecret,
+      { expiresIn: jwtExpiration }
+    );
+    
+    res.status(201).json({
+      success: true,
+      message: 'User registered successfully',
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    logger.error('Registration error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred during registration',
+      error: error.message
+    });
+  }
+}
+
+// Login user
+async function login(req, res) {
+  try {
+    const { username, password } = req.body;
+    
+    // Validate input
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username and password are required'
+      });
+    }
+    
+    // Find user
+    const user = await User.findByUsername(username);
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password'
+      });
+    }
+    
+    // Check if user is active
+    if (!user.is_active) {
+      return res.status(403).json({
+        success: false,
+        message: 'Account is inactive. Please contact administrator.'
+      });
+    }
+    
+    // Validate password
+    const isValidPassword = await bcrypt.compare(password, user.password);
+    if (!isValidPassword) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password'
+      });
+    }
+    
+    // Update last login
+    await User.updateLastLogin(user.id);
+    
+    // Create JWT token
+    const token = jwt.sign(
+      { id: user.id, username: user.username, role: user.role },
+      jwtSecret,
+      { expiresIn: jwtExpiration }
+    );
+    
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    logger.error('Login error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred during login',
+      error: error.message
+    });
+  }
+}
+
+// Get user profile
+async function getProfile(req, res) {
+  try {
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        role: user.role,
+        last_login: user.last_login,
+        created_at: user.created_at
+      }
+    });
+  } catch (error) {
+    logger.error('Get profile error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while fetching user profile',
+      error: error.message
+    });
+  }
+}
+
+// Change password
+async function changePassword(req, res) {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password and new password are required'
+      });
+    }
+    
+    // Get user
+    const user = await User.findById(req.user.id);
+    
+    // Check current password
+    const isValidPassword = await bcrypt.compare(currentPassword, user.password);
+    if (!isValidPassword) {
+      return res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+    
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+    
+    // Update password
+    await User.updatePassword(user.id, hashedPassword);
+    
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+  } catch (error) {
+    logger.error('Change password error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while changing password',
+      error: error.message
+    });
+  }
+}
+
+// Logout user (for server-side actions if needed)
+async function logout(req, res) {
+  // JWT is stateless, so we don't need to do anything server-side
+  // The client should remove the token from storage
+  
+  res.json({
+    success: true,
+    message: 'Logged out successfully'
+  });
+}
+
+module.exports = {
+  register,
+  login,
+  getProfile,
+  changePassword,
+  logout
+};
+
+// routes/authRoutes.js
+const express = require('express');
+const router = express.Router();
+const authController = require('../controllers/authController');
+const authenticateToken = require('../middleware/auth');
+const { validateRequest, userValidationRules } = require('../utils/validators');
+
+// Register a new user
+router.post('/register', userValidationRules, validateRequest, authController.register);
+
+// Login user
+router.post('/login', authController.login);
+
+// Get user profile (protected route)
+router.get('/profile', authenticateToken, authController.getProfile);
+
+// Change password (protected route)
+router.post('/change-password', authenticateToken, authController.changePassword);
+
+// Logout user
+router.post('/logout', authenticateToken, authController.logout);
+
+module.exports = router;
+
+```
+
+Now, let's implement the student management module:
+
+```javascript
+// models/studentModel.js
+const db = require('../config/db');
+const logger = require('../utils/logger');
+
+// Create a new student
+async function create(userId, studentData) {
+  try {
+    const {
+      registration_number,
+      date_of_birth,
+      gender,
+      address,
+      phone_number,
+      parent_guardian_name,
+      parent_guardian_phone,
+      admission_date
+    } = studentData;
+    
+    const query = `
+      INSERT INTO students (
+        user_id, registration_number, date_of_birth, gender, address, 
+        phone_number, parent_guardian_name, parent_guardian_phone, admission_date
+      ) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    
+    const result = await db.query(query, [
+      userId, registration_number, date_of_birth, gender, address, 
+      phone_number, parent_guardian_name, parent_guardian_phone, admission_date
+    ]);
+    
+    return result.insertId;
+  } catch (error) {
+    logger.error('Error creating student:', error.message);
+    throw error;
+  }
+}
+
+// Get all students with pagination
+async function getAll(page = 1, limit = 10, search = '') {
+  try {
+    const offset = (page - 1) * limit;
+    let params = [limit, offset];
+    let searchClause = '';
+    
+    if (search) {
+      searchClause = `
+        WHERE u.first_name LIKE ? OR u.last_name LIKE ? 
+        OR s.registration_number LIKE ? OR s.parent_guardian_name LIKE ?
+      `;
+      const searchParam = `%${search}%`;
+      params = [searchParam, searchParam, searchParam, searchParam, ...params];
+    }
+    
+    const query = `
+      SELECT 
+        s.id, s.registration_number, s.date_of_birth, s.gender, s.admission_date,
+        u.id as user_id, u.first_name, u.last_name, u.email,
+        s.address, s.phone_number, s.parent_guardian_name, s.parent_guardian_phone,
+        s.created_at, s.updated_at
+      FROM students s
+      JOIN users u ON s.user_id = u.id
+      ${searchClause}
+      ORDER BY s.id
+      LIMIT ? OFFSET ?
+    `;
+    
+    const countQuery = `
+      SELECT COUNT(*) as total 
+      FROM students s
+      JOIN users u ON s.user_id = u.id
+      ${searchClause}
+    `;
+    
+    const [students, countResult] = await Promise.all([
+      db.query(query, params),
+      db.query(countQuery, search ? [search, search, search, search] : [])
+    ]);
+    
+    return {
+      students,
+      pagination: {
+        page,
+        limit,
+        total: countResult[0].total,
+        pages: Math.ceil(countResult[0].total / limit)
+      }
+    };
+  } catch (error) {
+    logger.error('Error getting all students:', error.message);
+    throw error;
+  }
+}
+
+// Get student by ID
+async function getById(id) {
+  try {
+    const query = `
+      SELECT 
+        s.id, s.registration_number, s.date_of_birth, s.gender, s.admission_date,
+        u.id as user_id, u.first_name, u.last_name, u.email,
+        s.address, s.phone_number, s.parent_guardian_name, s.parent_guardian_phone,
+        s.created_at, s.updated_at
+      FROM students s
+      JOIN users u ON s.user_id = u.id
+      WHERE s.id = ?
+    `;
+    
+    const students = await db.query(query, [id]);
+    return students.length ? students[0] : null;
+  } catch (error) {
+    logger.error(`Error getting student by ID ${id}:`, error.message);
+    throw error;
+  }
+}
+
+// Get student by user ID
+async function getByUserId(userId) {
+  try {
+    const query = `
+      SELECT 
+        s.id, s.registration_number, s.date_of_birth, s.gender, s.admission_date,
+        u.id as user_id, u.first_name, u.last_name, u.email,
+        s.address, s.phone_number, s.parent_guardian_name, s.parent_guardian_phone,
+        s.created_at, s.updated_at
+      FROM students s
+      JOIN users u ON s.user_id = u.id
+      WHERE s.user_id = ?
+    `;
+    
+    const students = await db.query(query, [userId]);
+    return students.length ? students[0] : null;
+  } catch (error) {
+    logger.error(`Error getting student by user ID ${userId}:`, error.message);
+    throw error;
+  }
+}
+
+// Update student
+async function update(id, studentData) {
+  try {
+    const {
+      date_of_birth,
+      gender,
+      address,
+      phone_number,
+      parent_guardian_name,
+      parent_guardian_phone
+    } = studentData;
+    
+    const query = `
+      UPDATE students
+      SET date_of_birth = ?, gender = ?, address = ?, 
+          phone_number = ?, parent_guardian_name = ?, parent_guardian_phone = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `;
+    
+    return await db.query(query, [
+      date_of_birth, gender, address, 
+      phone_number, parent_guardian_name, parent_guardian_phone,
+      id
+    ]);
+  } catch (error) {
+    logger.error(`Error updating student ${id}:`, error.message);
+    throw error;
+  }
+}
+
+// Delete student
+async function remove(id) {
+  try {
+    const query = 'DELETE FROM students WHERE id = ?';
+    return await db.query(query, [id]);
+  } catch (error) {
+    logger.error(`Error deleting student ${id}:`, error.message);
+    throw error;
+  }
+}
+
+// Get student's classes
+async function getClasses(studentId) {
+  try {
+    const query = `
+      SELECT 
+        c.id, c.name, c.description, c.academic_year,
+        g.id as grade_id, g.name as grade_name,
+        cs.enrollment_date, cs.status
+      FROM class_students cs
+      JOIN classes c ON cs.class_id = c.id
+      JOIN grades g ON c.grade_id = g.id
+      WHERE cs.student_id = ?
+      ORDER BY c.academic_year DESC, g.name ASC
+    `;
+    
+    return await db.query(query, [studentId]);
+  } catch (error) {
+    logger.error(`Error getting classes for student ${studentId}:`, error.message);
+    throw error;
+  }
+}
+
+module.exports = {
+  create,
+  getAll,
+  getById,
+  getByUserId,
+  update,
+  remove,
+  getClasses
+};
+
+// controllers/studentController.js
+const Student = require('../models/studentModel');
+const User = require('../models/userModel');
+const bcrypt = require('bcryptjs');
+const logger = require('../utils/logger');
+
+// Create a new student (with user account)
+async function createStudent(req, res) {
+  try {
+    // Start a transaction
+    const connection = await db.pool.getConnection();
+    await connection.beginTransaction();
+    
+    try {
+      // Create user account first
+      const { 
+        username, password, email, first_name, last_name,
+        registration_number, date_of_birth, gender, address, 
+        phone_number, parent_guardian_name, parent_guardian_phone, admission_date
+      } = req.body;
+      
+      // Hash password
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
+      
+      // Get student role ID
+      const roles = await connection.query('SELECT id FROM roles WHERE name = ?', ['student']);
+      const roleId = roles[0][0].id;
+      
+      // Create user
+      const [userResult] = await connection.query(
+        'INSERT INTO users (username, password, email, first_name, last_name, role_id) VALUES (?, ?, ?, ?, ?, ?)',
+        [username, hashedPassword, email, first_name, last_name, roleId]
+      );
+      
+      const userId = userResult.insertId;
+      
+      // Create student profile
+      const [studentResult] = await connection.query(
+        `INSERT INTO students (
+          user_id, registration_number, date_of_birth, gender, address, 
+          phone_number, parent_guardian_name, parent_guardian_phone, admission_date
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          userId, registration_number, date_of_birth, gender, address, 
+          phone_number, parent_guardian_name, parent_guardian_phone, admission_date
+        ]
+      );
+      
+      await connection.commit();
+      
+      res.status(201).json({
+        success: true,
+        message: 'Student created successfully',
+        data: {
+          id: studentResult.insertId,
+          user_id: userId,
+          registration_number,
+          first_name,
+          last_name
+        }
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    logger.error('Error creating student:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while creating student',
+      error: error.message
+    });
+  }
+}
+
+// Get all students
+async function getAllStudents(req, res) {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.search || '';
+    
+    const result = await Student.getAll(page, limit, search);
+    
+    res.json({
+      success: true,
+      data: result.students,
+      pagination: result.pagination
+    });
+  } catch (error) {
+    logger.error('Error getting all students:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while fetching students',
+      error: error.message
+    });
+  }
+}
+
+// Get student by ID
+async function getStudentById(req, res) {
+  try {
+    const studentId = req.params.id;
+    const student = await Student.getById(studentId);
+    
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: student
+    });
+  } catch (error) {
+    logger.error(`Error getting student ${req.params.id}:`, error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while fetching student',
+      error: error.message
+    });
+  }
+}
+
+// Update student
+async function updateStudent(req, res) {
+  try {
+    const studentId = req.params.id;
+    
+    // Check if student exists
+    const student = await Student.getById(studentId);
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found'
+      });
+    }
+    
+    // Update student data
+    await Student.update(studentId, req.body);
+    
+    // Update user data if provided
+    if (req.body.first_name || req.body.last_name || req.body.email) {
+      const userData = {
+        first_name: req.body.first_name,
+        last_name: req.body.last_name,
+        email: req.body.email,
+        is_active: true,
+        role_id: 3 // Student role
+      };
+      
+      await User.update(student.user_id, userData);
+    }
+    
+    res.json({
+      success: true,
+      message: 'Student updated successfully'
+    });
+  } catch (error) {
+    logger.error(`Error updating student ${req.params.id}:`, error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while updating student',
+      error: error.message
+    });
+  }
+}
+
+// Delete student
+async function deleteStudent(req, res) {
+  try {
+    const studentId = req.params.id;
+    
+    // Check if student exists
+    const student = await Student.getById(studentId);
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found'
+      });
+    }
+    
+    // Start transaction
+    const connection = await db.pool.getConnection();
+    await connection.beginTransaction();
+    
+    try {
+      // Delete student record
+      await connection.query('DELETE FROM students WHERE id = ?', [studentId]);
+      
+      // Delete user account
+      await connection.query('DELETE FROM users WHERE id = ?', [student.user_id]);
+      
+      await connection.commit();
+      
+      res.json({
+        success: true,
+        message: 'Student deleted successfully'
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    logger.error(`Error deleting student ${req.params.id}:`, error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while deleting student',
+      error: error.message
+    });
+  }
+}
+
+// Get student's classes
+async function getStudentClasses(req, res) {
+  try {
+    const studentId = req.params.id;
+    
+    // Check if student exists
+    const student = await Student.getById(studentId);
+    if (!student) {
+      return res.status(404).json({
+        success: false,
+        message: 'Student not found'
+      });
+    }
+    
+    const classes = await Student.getClasses(studentId);
+    
+    res.json({
+      success: true,
+      data: classes
+    });
+  } catch (error) {
+    logger.error(`Error getting classes for student ${req.params.id}:`, error.message);
+    res.status(500).json({
+      success: false,
+      message: 'An error occurred while fetching student classes',
+      error: error.message
+    });
+  }
+}
+
+module.exports = {
+  createStudent,
+  getAllStudents,
+  getStudentById,
+  updateStudent,
+  deleteStudent,
+  getStudentClasses
+};
+
+// routes/studentRoutes.js
+const express = require('express');
+const router = express.Router();
+const studentController = require('../controllers/studentController');
+const authenticateToken = require('../middleware/auth');
+const checkRole = require('../middleware/roleCheck');
+const { validateRequest, studentValidationRules, userValidationRules } = require('../utils/validators');
+
+// Create a new student (requires both user and student validation)
+router.post(
+  '/',
+  authenticateToken,
+  checkRole('admin'),
+  [...userValidationRules, ...studentValidationRules],
+  validateRequest,
+  studentController.createStudent
+);
+
+// Get all students
+router.get(
+  '/',
+  authenticateToken,
+  checkRole('admin', 'teacher'),
+  studentController.getAllStudents
+);
+
+// Get student by ID
+router.get(
+  '/:id',
+  authenticateToken,
+  checkRole('admin', 'teacher', 'student'),
+  studentController.getStudentById
+);
+
+// Update student
+router.put(
+  '/:id',
+  authenticateToken,
+  checkRole('admin'),
+  studentValidationRules,
+  validateRequest,
+  studentController.updateStudent
+);
+
+// Delete student
+router.delete(
+  '/:id',
+  authenticateToken,
+  checkRole('admin'),
+  studentController.deleteStudent
+);
+
+// Get student's classes
+router.get(
+  '/:id/classes',
+  authenticateToken,
+  checkRole('admin', 'teacher', 'student'),
+  studentController.getStudentClasses
+);
+
+module.exports = router;
+
+```
+
+Now, let's implement the teacher management module:
+
+```javascript
+// models/teacherModel.js
+const db = require('../config/db');
+const logger = require('../utils/logger');
+
+// Create a new teacher
+async function create(userId, teacherData) {
+  try {
+    const {
+      employee_id,
+      date_of_birth,
+      gender,
+      address,
+      phone_number,
+      hire_date,
+      qualifications,
+      subjects_taught
+    } = teacherData;
+    
+    const query = `
+      INSERT INTO teachers (
+        user_id, employee_id, date_of_birth, gender, address, 
+        phone_number, hire_date, qualifications, subjects_taught
+      ) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    
+    const result = await db.query(query, [
+      userId, employee_id, date_of_birth, gender, address, 
+      phone_number, hire_date, qualifications, subjects_taught
+    ]);
+    
+    return result.insertId;
+  } catch (error) {
+    logger.error('Error creating teacher:', error.message);
+    throw error;
+  }
+}
+
+// Get all teachers with pagination
+async function getAll(page = 1, limit = 10, search = '') {
+  try {
+    const offset = (page - 1) * limit;
+    let params = [limit, offset];
+    let searchClause = '';
+    
+    if (search) {
+      searchClause = `
+        WHERE u.first_name LIKE ? OR u.last_name LIKE ? 
+        OR t.employee_id LIKE ? OR t.subjects_taught LIKE ?
+      `;
+      const searchParam = `%${search}%`;
+      params = [searchParam, searchParam, searchParam, searchParam, ...params];
+    }
+    
+    const query = `
+      SELECT 
+        t.id, t.employee_id, t.date_of_birth, t.gender, t.hire_date,
+        u.id as user_id, u.first_name, u.last_name, u.email,
+        t.address, t.phone_number, t.qualifications, t.subjects_taught,
+        t.created_at, t.updated_at
+      FROM teachers t
+      JOIN users u ON t.user_id = u.id
+      ${searchClause}
+      ORDER BY t.id
+      LIMIT ? OFFSET ?
+    `;
+    
+    const countQuery = `
+      SELECT COUNT(*) as total 
+      FROM teachers t
+      JOIN users u ON t.user_id = u.id
+      ${searchClause}
+    `;
+    
+    const [teachers, countResult] = await Promise.all([
+      db.query(query, params),
+      db.query(countQuery, search ? [search, search, search, search] : [])
+    ]);
+    
+    return {
+      teachers,
+      pagination: {
+        page,
+        limit,
+        total: countResult[0].total,
+        pages: Math.ceil(countResult[0].total / limit)
+      }
+    };
+  } catch (error) {
+    logger.error('Error getting all teachers:', error.message);
+    throw error;
+  }
+}
+
+// Get teacher by ID
+async function getById(id) {
+  try {
+    const query = `
+      SELECT 
+        t.id, t.employee_id, t.date_of_birth, t.gender, t.hire_date,
+        u.id as user_id, u.first_name, u.last_name, u.email,
+        t.address, t.phone_number, t.qualifications, t.subjects_taught,
+        t.created_at, t.updated_at
+      FROM teachers t
+      JOIN users u ON t.user_id = u.id
+      WHERE t.id = ?
+    `;
+    
+    const teachers = await db.query(query, [id]);
+    return teachers.length ? teachers[0] : null;
+  } catch (error) {
+    logger.error(`Error getting teacher by ID ${id}:`, error.message);
+    throw error;
+  }
+}
+
+// Get teacher by user ID
+async function getByUserId(userId) {
+  try {
+    const query = `
+      SELECT 
+        t.id, t.employee_id, t.date_of_birth, t.gender, t.hire_date,
+        u.id as user_id, u.first_name, u.last_name, u.email,
+        t.address, t.phone_number, t.qualifications, t.subjects_taught,
+        t.created_at, t.updated_at
+      FROM teachers t
+      JOIN users u ON t.user_id = u.id
+      WHERE t.user_id = ?
+    `;
+    
+    const teachers = await db.query(query, [userId]);
+    return teachers.length ? teachers[0] : null;
+  } catch (error) {
+    logger.error(`Error getting teacher by user ID ${userId}:`, error.message);
+    throw error;
+  }
+}
+
+// Update teacher
+async function update(id, teacherData) {
+  try {
+    const {
+      date_of_birth,
+      gender,
+      address,
+      phone_number,
+      qualifications,
+      subjects_taught
+    } = teacherData;
+    
+    const query = `
+      UPDATE teachers
+      SET date_of_birth = ?, gender = ?, address = ?, 
+          phone_number = ?, qualifications = ?, subjects_taught = ?,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `;
+    
+    return await db.query(query, [
+      date_of_birth, gender, address, 
+      phone_number, qualifications, subjects_taught,
+      id
+    ]);
+  } catch (error) {
+    logger.error(`Error updating teacher ${id}:`, error.message);
+    throw error;
+  }
+}
+
+// Delete teacher
+async function remove(id) {
+  try {
+    const query = 'DELETE FROM teachers WHERE id = ?';
+    return await db.query(query, [id]);
+  } catch (error) {
+    logger.error(`Error deleting teacher ${id}:`, error.message);
+    throw error;
+  }
+}
+
+// Get teacher's assigned classes
+async function getClasses(teacherId) {
+  try {
+    const query = `
+      SELECT 
+        c.id, c.name, c.description, c.academic_year,
+        g.id as grade_id, g.name as grade_name,
+        s.id as subject_id, s.name as subject_name, s.code as subject_code
+      FROM class_subjects cs
+      JOIN classes c ON cs.class_id = c.id
+      JOIN subjects s ON cs.subject_id = s.id
+      JOIN grades g ON c.grade_id = g.id
+      WHERE cs.teacher_i
+```
