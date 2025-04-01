@@ -1,0 +1,6 @@
+# For Ubuntu/Debian
+sudo apt update
+sudo apt install openvpn easy-rsa
+
+# For Windows Server
+# Download and install OpenVPN from https://openvpn.net/community-downloads/
