@@ -1,0 +1,26 @@
+1. npm install speakeasy qrcode
+Create the Directory Structure
+2. mkdir -p vpn/scripts vpn/configs vpn/keys vpn/logs
+
+
+Set Up Environment Variables
+3. Add these to your existing .env file:
+
+
+VPN_PORT=1194
+VPN_PROTOCOL=udp
+VPN_DEVICE=tun
+VPN_SUBNET=10.8.0.0 255.255.255.0
+VPN_SERVER_HOST=your_server_ip_here
+VPN_CONFIG_PATH=./vpn/configs/server.conf
+VPN_CLIENT_TEMPLATE=./vpn/configs/client.conf
+VPN_CERT_PATH=./vpn/keys
+VPN_MFA_ENABLED=true
+VPN_ALLOWED_ROLES=admin,teacher
+VPN_LOGGING_ENABLED=true
+
+
+4. Create Database Tables
+Run the SQL script to create the necessary tables.
+Set Up OpenVPN Server
+Make the scripts executable and run the setup script (requires root privileges):
