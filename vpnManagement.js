@@ -164,3 +164,7 @@ const VpnManagement = () => {
     )}
   </div>
 </div>
+);
+};
+export default VpnManagement;
+</antArtifact>
